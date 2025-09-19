@@ -1,7 +1,5 @@
 import os
 import math
-import re
-import nltk
 from collections import defaultdict, Counter
 
 import spacy
@@ -15,10 +13,16 @@ def tokenize(text):
     tokens = []
     for token in doc:
         if token.is_alpha and token.text not in stop_words:
-            # Keep lemmas instead of raw words
-            tokens.append(token.lemma_)
+            tokens.append(token.lemma_)  # Keep lemmas instead of raw words
     return tokens
 
+def preprocess_query(query):
+    doc = nlp(query.lower())
+    tokens = [
+        token.lemma_ for token in doc
+        if token.is_alpha and not token.is_stop
+    ]
+    return tokens
 
 # Soundex
 def soundex(word):
