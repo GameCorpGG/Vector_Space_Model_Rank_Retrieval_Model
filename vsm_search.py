@@ -3,13 +3,14 @@ import math
 import re
 from collections import defaultdict, Counter
 
-# -----------------------------
-# Utilities: tokenization
-# -----------------------------
-TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
+from nltk.stem import PorterStemmer
+
+stemmer = PorterStemmer()
 
 def tokenize(text):
-    return [t.lower() for t in TOKEN_RE.findall(text)]
+    tokens = re.findall(r"\b\w+\b", text.lower())
+    return [stemmer.stem(t) for t in tokens]
+
 
 # Soundex
 def soundex(word):
@@ -82,9 +83,7 @@ class VSMIndexer:
     def soundex_terms(self, term):
         return self.soundex_map.get(soundex(term), set())
 
-# -----------------------------
 # Searcher (lnc.ltc)
-# -----------------------------
 class VSMSearcher:
     def __init__(self, indexer):
         self.idx = indexer
@@ -145,11 +144,7 @@ class VSMSearcher:
         results.sort(key=lambda x: (-x[1], x[0]))
         return results[:top_k]
 
-# -----------------------------
 # Load corpus from folder
-# -----------------------------
-import os
-
 def load_corpus_from_folder(folder_path):
     docs = {}
     for root, _, files in os.walk(folder_path):
