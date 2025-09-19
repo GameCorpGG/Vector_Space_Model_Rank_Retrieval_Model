@@ -1,15 +1,23 @@
 import os
 import math
 import re
+import nltk
 from collections import defaultdict, Counter
 
-from nltk.stem import PorterStemmer
+import spacy
+from nltk.corpus import stopwords
 
-stemmer = PorterStemmer()
+nlp = spacy.load("en_core_web_sm")
+stop_words = set(stopwords.words("english"))
 
 def tokenize(text):
-    tokens = re.findall(r"\b\w+\b", text.lower())
-    return [stemmer.stem(t) for t in tokens]
+    doc = nlp(text.lower())
+    tokens = []
+    for token in doc:
+        if token.is_alpha and token.text not in stop_words:
+            # Keep lemmas instead of raw words
+            tokens.append(token.lemma_)
+    return tokens
 
 
 # Soundex
@@ -140,7 +148,7 @@ class VSMSearcher:
                 d_w = self.idx.doc_term_norm_weight[docID].get(term, 0.0)
                 scores[docID] += q_w * d_w
         
-        results = [(docID, s) for docID, s in scores.items() if s > 0]
+        results = [(docID, s) for docID, s in scores.items() if s > 0.]
         results.sort(key=lambda x: (-x[1], x[0]))
         return results[:top_k]
 
@@ -174,4 +182,4 @@ if __name__ == "__main__":
             print("No results found.")
         else:
             for docID, score in results:
-                print(f"Doc {docID} (score={score:.4f})")
+                print(f"Doc {docID} (score={score:.8f})")
