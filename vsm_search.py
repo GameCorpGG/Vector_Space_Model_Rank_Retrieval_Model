@@ -18,6 +18,19 @@ from collections import defaultdict, Counter
 import spacy
 from nltk.corpus import stopwords
 
+# Optional imports for visualization and highlighting
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
+try:
+    from termcolor import colored
+    TERMCOLOR_AVAILABLE = True
+except ImportError:
+    TERMCOLOR_AVAILABLE = False
+
 # Initialize spaCy language model for advanced NLP preprocessing
 # en_core_web_sm provides tokenization, POS tagging, and lemmatization
 nlp = spacy.load("en_core_web_sm")
@@ -174,7 +187,7 @@ class VSMIndexer:
         1. Calculate raw term frequencies for all documents
         2. Build inverted index with document frequency statistics
         3. Compute log-normalized TF weights for document terms
-        4. Normalize document vectors using cosine normalization
+        4. Normalize document vectors using cosine normalization        
         5. Create Soundex mappings for phonetic matching
         
         Args:
@@ -185,14 +198,15 @@ class VSMIndexer:
         term_doc_tf = defaultdict(lambda: defaultdict(int))
         
         # Phase 1: Extract and count terms from all documents
-        for docID, text in docs.items():
+        for docID in sorted(docs.keys()):  # Sort document IDs for consistent processing
+            text = docs[docID]
             tokens = tokenize(text)  # Apply full text preprocessing pipeline
             counts = Counter(tokens)  # Count term occurrences
             for term, tf in counts.items():
                 term_doc_tf[term][docID] = tf
-        
-        # Phase 2: Build inverted index with document frequency statistics
-        for term, doc_tf_map in term_doc_tf.items():
+          # Phase 2: Build inverted index with document frequency statistics
+        for term in sorted(term_doc_tf.keys()):  
+            doc_tf_map = term_doc_tf[term]
             # Sort postings by document ID for consistent ordering
             postings = sorted(doc_tf_map.items(), key=lambda x: x[0])
             df = len(postings)  # Document frequency (number of docs containing term)
@@ -202,9 +216,9 @@ class VSMIndexer:
             
             # Build Soundex mapping for phonetic query expansion
             self.soundex_map[soundex(term)].add(term)
-        
-        # Phase 3: Calculate log-normalized TF weights and accumulate for normalization
-        for term, info in self.inverted.items():
+          # Phase 3: Calculate log-normalized TF weights and accumulate for normalization
+        for term in sorted(self.inverted.keys()):  # Sort terms for consistent processing order
+            info = self.inverted[term]
             for docID, tf in info["postings"]:
                 # Apply log normalization: 1 + log10(tf) 
                 # This reduces impact of high-frequency terms within documents
@@ -216,15 +230,16 @@ class VSMIndexer:
                 
                 # Store raw log-normalized weight (before normalization)
                 self.doc_term_norm_weight[docID][term] = tf_w
-        
-        # Phase 4: Apply cosine normalization to all document vectors
-        for docID, sqsum in self.doc_norms.items():
+          # Phase 4: Apply cosine normalization to all document vectors
+        for docID in sorted(self.doc_norms.keys()):  # Sort document IDs for consistent processing
+            sqsum = self.doc_norms[docID]
             # Calculate L2 norm (Euclidean length) of document vector
             norm = math.sqrt(sqsum) if sqsum > 0 else 1.0
             self.doc_norms[docID] = norm
             
             # Normalize all term weights by document vector length
-            for term, raw_w in self.doc_term_norm_weight[docID].items():
+            for term in sorted(self.doc_term_norm_weight[docID].keys()): 
+                raw_w = self.doc_term_norm_weight[docID][term]
                 self.doc_term_norm_weight[docID][term] = raw_w / norm
     
     def get_postings(self, term):
@@ -289,12 +304,14 @@ class VSMSearcher:
             
         Returns:
             dict: Mapping of {term: weight} for query terms, None for OOV terms
-        """
+        """        
         # Count term frequencies in query
         q_counts = Counter(tokens)
         q_weights = {}
         
-        for term, tf_q in q_counts.items():
+        # Process query terms in sorted order for deterministic behavior
+        for term in sorted(q_counts.keys()):
+            tf_q = q_counts[term]
             # Apply log-normalization to query term frequency
             tf_q_w = 1.0 + math.log10(tf_q)
             
@@ -341,8 +358,7 @@ class VSMSearcher:
         for term, w in q_raw.items():
             if w is not None:  # Term found in collection
                 q_term_weights[term] = w
-        
-        # Step 4: Handle out-of-vocabulary terms with Soundex expansion
+          # Step 4: Handle out-of-vocabulary terms with Soundex expansion
         if soundex_fallback:
             for term, w in q_raw.items():
                 if w is None:  # Term not found in collection
@@ -351,7 +367,8 @@ class VSMSearcher:
                     tf_q_w = 1.0 + math.log10(tf_q)
                     
                     # Find phonetically similar terms using Soundex
-                    for cand in self.idx.soundex_terms(term):
+                    soundex_candidates = sorted(self.idx.soundex_terms(term))
+                    for cand in soundex_candidates:
                         p = self.idx.get_postings(cand)
                         if p:
                             # Use IDF of the phonetically similar term
@@ -363,15 +380,14 @@ class VSMSearcher:
         # Step 5: Early termination if no valid query terms
         if not q_term_weights:
             return []
-        
-        # Step 6: Apply cosine normalization to query vector
+          # Step 6: Apply cosine normalization to query vector
         q_norm = math.sqrt(sum(w*w for w in q_term_weights.values())) or 1.0
-        for t in q_term_weights:
+        for t in sorted(q_term_weights.keys()):  # Sort terms for consistent processing
             q_term_weights[t] /= q_norm
-        
-        # Step 7: Calculate cosine similarity scores for all relevant documents
+          # Step 7: Calculate cosine similarity scores for all relevant documents
         scores = defaultdict(float)
-        for term, q_w in q_term_weights.items():
+        for term in sorted(q_term_weights.keys()):  # Sort query terms for consistent processing
+            q_w = q_term_weights[term]
             # Retrieve postings list for current query term
             posting = self.idx.get_postings(term)
             if not posting:
@@ -417,6 +433,160 @@ def load_corpus_from_folder(folder_path):
                     docs[filename] = f.read()
     return docs
 
+# Visualization and Enhancement Utilities
+def plot_scores(results, title="Search Result Scores"):
+    """
+    Create a horizontal bar chart showing relevance scores for search results.
+    
+    Provides visual representation of document ranking to help users understand
+    the relative relevance of different documents in the result set.
+    
+    Args:
+        results (list): List of (document_id, score) tuples from search
+        title (str): Chart title for customization
+        
+    Returns:
+        matplotlib.figure.Figure: The generated plot figure
+        
+    Note:
+        Requires matplotlib to be installed. Returns None if not available.
+    """
+    if not MATPLOTLIB_AVAILABLE:
+        print("Matplotlib not available. Install with: pip install matplotlib")
+        return None
+    
+    if not results:
+        print("No results to plot.")
+        return None
+    
+    # Extract document IDs and scores
+    docIDs = [d for d, _ in results]
+    scores = [s for _, s in results]
+    
+    # Create horizontal bar chart (reversed for better readability)
+    fig, ax = plt.subplots(figsize=(10, max(6, len(results) * 0.4)))
+    bars = ax.barh(docIDs[::-1], scores[::-1], color='skyblue', alpha=0.7)
+    
+    # Customize chart appearance
+    ax.set_xlabel("Relevance Score", fontsize=12)
+    ax.set_ylabel("Documents", fontsize=12)
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.grid(axis='x', alpha=0.3)
+    
+    # Add score labels on bars
+    for i, (bar, score) in enumerate(zip(bars, scores[::-1])):
+        ax.text(bar.get_width() + 0.001, bar.get_y() + bar.get_height()/2, 
+                f'{score:.4f}', ha='left', va='center', fontsize=9)
+    
+    plt.tight_layout()
+    return fig
+
+def snippet_with_highlights(text, query_terms, length=200):
+    """
+    Generate a text snippet with query terms highlighted for result preview.
+    
+    Creates an intelligent text excerpt that centers around query term matches
+    and highlights all query terms for easy identification. This provides
+    context for why a document was deemed relevant.
+    
+    Args:
+        text (str): Full document text content
+        query_terms (list): List of query terms to highlight
+        length (int): Maximum length of the snippet
+        
+    Returns:
+        str: Text snippet with highlighted query terms
+        
+    Note:
+        Uses termcolor for highlighting if available, otherwise returns plain text
+    """
+    if not text or not query_terms:
+        return text[:length] + "..." if len(text) > length else text
+    
+    text_lower = text.lower()
+    query_terms_lower = [term.lower() for term in query_terms]
+    
+    # Find the best position to extract snippet (most query term matches)
+    best_start = 0
+    max_matches = 0
+    
+    # Try different starting positions to find snippet with most query terms
+    for start in range(0, max(1, len(text) - length), 50):
+        snippet_section = text_lower[start:start + length]
+        matches = sum(1 for term in query_terms_lower if term in snippet_section)
+        
+        if matches > max_matches:
+            max_matches = matches
+            best_start = start
+    
+    # Extract the best snippet
+    snippet = text[best_start:best_start + length]
+    
+    # Clean up snippet (remove partial words at edges)
+    if best_start > 0:
+        # Find first complete word
+        first_space = snippet.find(' ')
+        if first_space > 0:
+            snippet = snippet[first_space + 1:]
+    
+    # Clean line breaks and multiple spaces
+    snippet = ' '.join(snippet.split())
+    
+    # Highlight query terms if termcolor is available
+    if TERMCOLOR_AVAILABLE:
+        for term in query_terms:
+            # Highlight exact matches (case-insensitive)
+            snippet = snippet.replace(term, colored(term, 'red', attrs=['bold']))
+            snippet = snippet.replace(term.capitalize(), colored(term.capitalize(), 'red', attrs=['bold']))
+            snippet = snippet.replace(term.upper(), colored(term.upper(), 'red', attrs=['bold']))
+    
+    return snippet + "..." if len(snippet) == length else snippet
+
+def enhanced_search_with_snippets(searcher, docs, query, top_k=10):
+    """
+    Perform search and generate enhanced results with snippets and metadata.
+    
+    Combines the standard VSM search with snippet generation and additional
+    metadata for improved user experience and result understanding.
+    
+    Args:
+        searcher (VSMSearcher): Initialized search engine
+        docs (dict): Document collection {doc_id: content}
+        query (str): Search query
+        top_k (int): Maximum number of results
+        
+    Returns:
+        list: Enhanced results with snippets and metadata
+    """
+    # Perform standard search
+    results = searcher.search(query, top_k)
+    
+    if not results:
+        return []
+    
+    # Get query tokens for snippet highlighting
+    query_tokens = tokenize(query)
+    
+    # Generate enhanced results with snippets
+    enhanced_results = []
+    for doc_id, score in results:
+        if doc_id in docs:
+            # Generate snippet with highlights
+            snippet = snippet_with_highlights(docs[doc_id], query_tokens)
+            
+            # Create enhanced result entry
+            enhanced_result = {
+                'doc_id': doc_id,
+                'score': score,
+                'snippet': snippet,
+                'doc_length': len(docs[doc_id]),
+                'query_terms_found': [term for term in query_tokens 
+                                     if term.lower() in docs[doc_id].lower()]
+            }
+            enhanced_results.append(enhanced_result)
+    
+    return enhanced_results
+
 if __name__ == "__main__":
     # Configuration: Set corpus directory path
     folder = "./Corpus"  # Unzip the corpus in the same directory as this file
@@ -461,8 +631,7 @@ if __name__ == "__main__":
             if q.lower() == "exit":
                 print("Thank you for using the VSM Search Engine!")
                 break
-            
-            # Perform search and display results
+              # Perform search and display results
             results = searcher.search(q)
             if not results:
                 print("No results found.")
@@ -472,9 +641,29 @@ if __name__ == "__main__":
                 print("• Use more general terms")
             else:
                 print(f"\nFound {len(results)} relevant documents:")
-                print("-" * 50)
+                print("-" * 60)
+                
+                # Get query tokens for snippet highlighting
+                query_tokens = tokenize(q)
+                
+                # Display enhanced results with snippets
                 for i, (docID, score) in enumerate(results, 1):
                     print(f"{i:2d}. {docID:<25} (Relevance: {score:.8f})")
+                    
+                    # Show snippet with highlights
+                    if docID in docs:
+                        snippet = snippet_with_highlights(docs[docID], query_tokens, length=150)
+                        print(f"    Preview: {snippet}")
+                    
+                    print("-" * 60)
+                
+                # Optional: Show score visualization
+                if MATPLOTLIB_AVAILABLE:
+                    show_plot = input("\nShow score visualization? (y/n): ").lower().strip()
+                    if show_plot == 'y':
+                        fig = plot_scores(results, f"Search Results for: '{q}'")
+                        if fig:
+                            plt.show()
         
         except KeyboardInterrupt:
             print("\n\nSearch session terminated by user.")
