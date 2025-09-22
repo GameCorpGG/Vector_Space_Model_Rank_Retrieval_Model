@@ -1,3 +1,4 @@
+# -------------------- IMPORTS --------------------
 import os
 import zipfile
 import math
@@ -5,19 +6,25 @@ import string
 from collections import defaultdict, Counter
 
 import spacy
+import nltk
+
+# Download stopwords in Colab
+nltk.download('stopwords')
+
 from nltk.corpus import stopwords
 
-# Colab upload
+# Colab file upload
 from google.colab import files
 
-# For new features
+# New features
 import matplotlib.pyplot as plt
 from termcolor import colored
 
-# Load spaCy model and NLTK stopwords
+# -------------------- NLP SETUP --------------------
 nlp = spacy.load("en_core_web_sm")
 stop_words = set(stopwords.words("english"))
 
+# -------------------- TOKENIZATION --------------------
 def tokenize(text):
     text = text.translate(str.maketrans('', '', string.punctuation))
     doc = nlp(text.lower())
@@ -31,11 +38,13 @@ def preprocess_query(query):
     doc = nlp(query.lower())
     return [token.lemma_ for token in doc if token.is_alpha and not token.is_stop]
 
+# -------------------- SOUNDEX --------------------
 def soundex(word):
     codes = {
         "B": "1","F": "1","P": "1","V": "1",
         "C": "2","G": "2","J": "2","K": "2","Q": "2","S": "2","X": "2","Z": "2",
-        "D": "3","T": "3","L": "4","M": "5","N": "5","R": "6"
+        "D": "3","T": "3",
+        "L": "4","M": "5","N": "5","R": "6"
     }
     if not word: return "0000"
     word = word.upper()
@@ -53,6 +62,7 @@ def soundex(word):
             break
     return out.ljust(4, "0")[:4]
 
+# -------------------- INDEXER --------------------
 class VSMIndexer:
     def __init__(self):
         self.inverted = {}
@@ -92,6 +102,7 @@ class VSMIndexer:
     def soundex_terms(self, term):
         return self.soundex_map.get(soundex(term), set())
 
+# -------------------- SEARCHER --------------------
 class VSMSearcher:
     def __init__(self, indexer):
         self.idx = indexer
@@ -143,6 +154,7 @@ class VSMSearcher:
         results.sort(key=lambda x: (-x[1], x[0]))
         return results[:top_k]
 
+# -------------------- UTILITY FUNCTIONS --------------------
 def plot_scores(results):
     docIDs = [d for d,_ in results]
     scores = [s for _,s in results]
@@ -176,15 +188,15 @@ def load_corpus_from_folder(folder_path):
                     docs[filename] = f.read()
     return docs
 
-# --------------------- MAIN ---------------------
+# -------------------- MAIN --------------------
 if __name__ == "__main__":
     print("Upload your corpus as a zipped folder (.zip)")
-    uploaded = files.upload()  # Colab will prompt to upload
+    uploaded = files.upload()  # Colab prompt
 
-    # Extract the uploaded zip file
+    # Extract uploaded zip
     for zip_name in uploaded.keys():
         with zipfile.ZipFile(zip_name, 'r') as zip_ref:
-            zip_ref.extractall("Corpus")  # extract into 'Corpus' folder
+            zip_ref.extractall("Corpus")  # extract to 'Corpus' folder
         print(f"Extracted {zip_name} to 'Corpus/' folder")
 
     # Load documents
@@ -196,11 +208,13 @@ if __name__ == "__main__":
         exit()
 
     # Build index
+    print("Building inverted index...")
     idx = VSMIndexer()
     idx.index_documents(docs)
     searcher = VSMSearcher(idx)
+    print("Indexing complete. Search engine ready!")
 
-    print("\nVSM Search Engine Ready!")
+    # Query loop
     while True:
         try:
             q = input("\nEnter query (or 'exit'): ")
