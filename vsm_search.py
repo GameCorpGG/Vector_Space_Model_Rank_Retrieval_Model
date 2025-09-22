@@ -1,17 +1,5 @@
-"""
-Vector Space Model (VSM) Implementation with Novel Output Features
-==================================================================
-
-Features:
-- TF-IDF weighting (lnc.ltc)
-- Cosine similarity for document ranking
-- Soundex algorithm for phonetic query expansion
-- Advanced text preprocessing with lemmatization
-- NEW: Bar chart of scores for each search
-- NEW: Google-style snippets with highlighted query terms
-"""
-
 import os
+import zipfile
 import math
 import string
 from collections import defaultdict, Counter
@@ -19,12 +7,14 @@ from collections import defaultdict, Counter
 import spacy
 from nltk.corpus import stopwords
 
-# ---------------- NEW LIBRARIES ----------------
-import matplotlib.pyplot as plt
-from termcolor import colored  # pip install termcolor once in Colab
-# ------------------------------------------------
+# Colab upload
+from google.colab import files
 
-# Load spaCy language model and NLTK stopwords
+# For new features
+import matplotlib.pyplot as plt
+from termcolor import colored
+
+# Load spaCy model and NLTK stopwords
 nlp = spacy.load("en_core_web_sm")
 stop_words = set(stopwords.words("english"))
 
@@ -33,10 +23,7 @@ def tokenize(text):
     doc = nlp(text.lower())
     tokens = []
     for token in doc:
-        if (token.is_alpha and
-            token.text not in stop_words and
-            len(token.text) > 2 and
-            not token.is_space):
+        if token.is_alpha and token.text not in stop_words and len(token.text) > 2 and not token.is_space:
             tokens.append(token.lemma_)
     return tokens
 
@@ -44,15 +31,11 @@ def preprocess_query(query):
     doc = nlp(query.lower())
     return [token.lemma_ for token in doc if token.is_alpha and not token.is_stop]
 
-# Soundex implementation
 def soundex(word):
     codes = {
         "B": "1","F": "1","P": "1","V": "1",
         "C": "2","G": "2","J": "2","K": "2","Q": "2","S": "2","X": "2","Z": "2",
-        "D": "3","T": "3",
-        "L": "4",
-        "M": "5","N": "5",
-        "R": "6"
+        "D": "3","T": "3","L": "4","M": "5","N": "5","R": "6"
     }
     if not word: return "0000"
     word = word.upper()
@@ -70,7 +53,6 @@ def soundex(word):
             break
     return out.ljust(4, "0")[:4]
 
-# Indexer
 class VSMIndexer:
     def __init__(self):
         self.inverted = {}
@@ -110,7 +92,6 @@ class VSMIndexer:
     def soundex_terms(self, term):
         return self.soundex_map.get(soundex(term), set())
 
-# Searcher
 class VSMSearcher:
     def __init__(self, indexer):
         self.idx = indexer
@@ -162,10 +143,7 @@ class VSMSearcher:
         results.sort(key=lambda x: (-x[1], x[0]))
         return results[:top_k]
 
-# ----------------- NEW FEATURES -----------------
-
 def plot_scores(results):
-    """Bar chart of search scores."""
     docIDs = [d for d,_ in results]
     scores = [s for _,s in results]
     plt.barh(docIDs[::-1], scores[::-1])
@@ -175,7 +153,6 @@ def plot_scores(results):
     plt.show()
 
 def snippet_with_highlights(text, query_terms, length=150):
-    """Return snippet of text with query terms highlighted."""
     t_lower = text.lower()
     for t in query_terms:
         idx = t_lower.find(t)
@@ -189,8 +166,6 @@ def snippet_with_highlights(text, query_terms, length=150):
             return snippet + "..."
     return text[:length] + "..."
 
-# ------------------------------------------------
-
 def load_corpus_from_folder(folder_path):
     docs = {}
     for root, _, files in os.walk(folder_path):
@@ -201,49 +176,47 @@ def load_corpus_from_folder(folder_path):
                     docs[filename] = f.read()
     return docs
 
+# --------------------- MAIN ---------------------
 if __name__ == "__main__":
-    folder = "./Corpus"  # path to your corpus folder
-    print("Loading document corpus...")
-    docs = load_corpus_from_folder(folder)
+    print("Upload your corpus as a zipped folder (.zip)")
+    uploaded = files.upload()  # Colab will prompt to upload
+
+    # Extract the uploaded zip file
+    for zip_name in uploaded.keys():
+        with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+            zip_ref.extractall("Corpus")  # extract into 'Corpus' folder
+        print(f"Extracted {zip_name} to 'Corpus/' folder")
+
+    # Load documents
+    print("Loading documents...")
+    docs = load_corpus_from_folder("Corpus")
     print(f"Loaded {len(docs)} documents.")
     if len(docs) == 0:
-        print("Error: No documents found.")
+        print("No documents found. Exiting...")
         exit()
 
-    print("Building inverted index...")
+    # Build index
     idx = VSMIndexer()
     idx.index_documents(docs)
-    print("Index construction completed.")
     searcher = VSMSearcher(idx)
 
-    print("\n" + "="*60)
-    print("Vector Space Model Search Engine")
-    print("="*60)
-    print("Now with bar charts and highlighted snippets!")
-    print("="*60)
-
+    print("\nVSM Search Engine Ready!")
     while True:
         try:
             q = input("\nEnter query (or 'exit'): ")
             if q.lower() == "exit":
-                print("Thank you for using the VSM Search Engine!")
+                print("Exiting search engine.")
                 break
             results = searcher.search(q)
             if not results:
                 print("No results found.")
             else:
-                print(f"\nFound {len(results)} relevant documents:")
-                print("-"*50)
                 tokens = tokenize(q)
-                for i,(docID,score) in enumerate(results,1):
+                for i, (docID, score) in enumerate(results, 1):
                     print(f"{i:2d}. {docID:<25} (Relevance: {score:.8f})")
                     print(snippet_with_highlights(docs[docID], tokens))
                     print()
-                # plot the scores visually
                 plot_scores(results)
         except KeyboardInterrupt:
-            print("\n\nSearch session terminated by user.")
+            print("\nSearch terminated by user.")
             break
-        except Exception as e:
-            print(f"Error during search: {e}")
-            print("Please try again with a different query.")
